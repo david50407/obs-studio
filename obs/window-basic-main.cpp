@@ -1193,6 +1193,12 @@ void OBSBasic::SetService(obs_service_t newService)
 	}
 }
 
+#ifdef _WIN32
+#define IS_WIN32 1
+#else
+#define IS_WIN32 0
+#endif
+
 static inline int AttemptToResetVideo(struct obs_video_info *ovi)
 {
 	int ret = obs_reset_video(ovi);
@@ -1244,6 +1250,14 @@ int OBSBasic::ResetVideo()
 	ovi.window_height = size.height();
 
 	ret = AttemptToResetVideo(&ovi);
+	if (IS_WIN32 && ret != OBS_VIDEO_SUCCESS) {
+		/* Try OpenGL if DirectX fails on windows */
+		if (astrcmpi(ovi.graphics_module, "libobs-opengl") != 0) {
+			ovi.graphics_module = "libobs-opengl";
+			ret = AttemptToResetVideo(&ovi);
+		}
+	}
+
 	if (ret == OBS_VIDEO_SUCCESS)
 		obs_add_draw_callback(OBSBasic::RenderMain, this);
 
