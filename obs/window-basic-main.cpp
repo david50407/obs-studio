@@ -57,6 +57,16 @@ Q_DECLARE_METATYPE(OBSScene);
 Q_DECLARE_METATYPE(OBSSceneItem);
 Q_DECLARE_METATYPE(order_movement);
 
+static void AddExtraModulePaths()
+{
+	BPtr<char> base_module_dir = os_get_config_path("plugins/%module%");
+	if (!base_module_dir)
+		return;
+
+	string path = (char*)base_module_dir;
+	obs_add_module_path((path + "/bin").c_str(), (path + "/data").c_str());
+}
+
 OBSBasic::OBSBasic(QWidget *parent)
 	: OBSMainWindow  (parent),
 	  ui             (new Ui::OBSBasic)
@@ -533,6 +543,8 @@ void OBSBasic::OBSInit()
 	}
 
 	InitOBSCallbacks();
+
+	AddExtraModulePaths();
 
 	/* TODO: this is a test, all modules will be searched for and loaded
 	 * automatically later */
