@@ -262,6 +262,12 @@ EXPORT bool obs_get_audio_info(struct audio_output_info *ai);
  */
 EXPORT int obs_load_module(const char *path);
 
+/**
+ * Adds a module search path.  If the search path strings contain %module%,
+ * that text will be replaced with the module name when used.
+ */
+EXPORT void obs_add_module_path(const char *bin, const char *data);
+
 /** Helper function for using default module locale */
 EXPORT lookup_t obs_module_load_locale(const char *module,
 		const char *default_locale, const char *locale);
@@ -366,12 +372,12 @@ EXPORT obs_encoder_t obs_get_encoder_by_name(const char *name);
 EXPORT obs_service_t obs_get_service_by_name(const char *name);
 
 /**
- * Returns the location of a plugin data file.
+ * Returns the location of a plugin module data file.
  *
  *   file: Name of file to locate.  For example, "myplugin/mydata.data"
  *   returns: Path string, or NULL if not found.  Use bfree to free string.
  */
-EXPORT char *obs_find_plugin_file(const char *file);
+EXPORT char *obs_find_module_file(const char *module_name, const char *file);
 
 /** Returns the default effect for generic RGB/YUV drawing */
 EXPORT effect_t obs_get_default_effect(void);

@@ -22,7 +22,8 @@
 #include "obs-internal.h"
 #include "obs-module.h"
 
-extern char *find_plugin(const char *plugin);
+extern char *find_core_plugin(const char *plugin);
+extern const char *get_module_extension(void);
 
 static inline int req_func_not_found(const char *name, const char *path)
 {
@@ -54,33 +55,131 @@ static int call_module_load(void *module, const char *path)
 	return MODULE_SUCCESS;
 }
 
-int obs_load_module(const char *path)
+#define NO_LIB_PREFIX  false
+#define USE_LIB_PREFIX true
+
+static bool get_module_path(const char *name, const char *input_path,
+		 bool use_lib_prefix, char **output_path)
+{
+	struct dstr module_path = {0};
+	bool found;
+
+	dstr_copy(&module_path, input_path);
+
+	dstr_replace(&module_path, "\\", "/");
+	if (dstr_end(&module_path) != '/')
+		dstr_cat_ch(&module_path, '/');
+
+	dstr_replace(&module_path, "%module%", name);
+
+	if (use_lib_prefix)
+		dstr_cat(&module_path, "lib");
+
+	dstr_cat(&module_path, name);
+	dstr_cat(&module_path, get_module_extension());
+
+	found = os_file_exists(module_path.array);
+	if (!found)
+		dstr_free(&module_path);
+
+	*output_path = module_path.array;
+	return found;
+}
+
+static const struct obs_module_path *find_module_path(const char *name,
+		char **path)
+{
+	for (size_t i = 0; i < obs->module_paths.num; i++) {
+		struct obs_module_path *omp = obs->module_paths.array + i;
+
+		if (get_module_path(name, omp->bin, NO_LIB_PREFIX,  path) ||
+		    get_module_path(name, omp->bin, USE_LIB_PREFIX, path))
+			return omp;
+	}
+
+	return NULL;
+}
+
+int obs_load_module(const char *name)
 {
 	struct obs_module mod;
-	char *plugin_path = find_plugin(path);
+	char *path = NULL;
+	const struct obs_module_path *omp = find_module_path(name, &path);
+	struct dstr data_path = {0};
 	int errorcode;
 
-	mod.module = os_dlopen(plugin_path);
-	bfree(plugin_path);
-	if (!mod.module) {
-		blog(LOG_WARNING, "Module '%s' not found", path);
+	if (omp) {
+		mod.module = os_dlopen(path);
+		bfree(path);
+	}
+
+	if (!omp || !mod.module) {
+		blog(LOG_WARNING, "Module '%s' not found", name);
 		return MODULE_FILE_NOT_FOUND;
 	}
 
-	errorcode = call_module_load(mod.module, path);
+	errorcode = call_module_load(mod.module, name);
 	if (errorcode != MODULE_SUCCESS) {
 		os_dlclose(mod.module);
 		return errorcode;
 	}
 
-	mod.name       = bstrdup(path);
+	dstr_copy(&data_path, omp->data);
+	dstr_replace(&data_path, "\\", "/");
+	dstr_replace(&data_path, "%module%", name);
+	if (dstr_end(&data_path) != '/')
+		dstr_cat_ch(&data_path, '/');
+
+	mod.name       = bstrdup(name);
+	mod.data_path  = data_path.array;
 	mod.set_locale = os_dlsym(mod.module, "obs_module_set_locale");
+
+	da_push_back(obs->modules, &mod);
 
 	if (mod.set_locale)
 		mod.set_locale(obs->locale);
 
-	da_push_back(obs->modules, &mod);
 	return MODULE_SUCCESS;
+}
+
+void obs_add_module_path(const char *bin, const char *data)
+{
+	struct obs_module_path omp;
+
+	if (!obs || !bin || !data) return;
+
+	omp.bin  = bstrdup(bin);
+	omp.data = bstrdup(data);
+	da_push_back(obs->module_paths, &omp);
+}
+
+const struct obs_module *find_module(const char *module_name)
+{
+	for (size_t i = 0; i < obs->modules.num; i++) {
+		struct obs_module *module = obs->modules.array + i;
+		if (astrcmpi(module->name, module_name) == 0)
+			return module;
+	}
+
+	return NULL;
+}
+
+char *obs_find_module_file(const char *module_name, const char *file)
+{
+	const struct obs_module *module = find_module(module_name);
+	struct dstr output = {0};
+
+	if (!module)
+		return NULL;
+
+	dstr_copy(&output, module->data_path);
+	dstr_cat(&output, file);
+
+	if (os_file_exists(output.array))
+		return output.array;
+
+	dstr_free(&output);
+	return NULL;
 }
 
 void free_module(struct obs_module *mod)
@@ -98,6 +197,7 @@ void free_module(struct obs_module *mod)
 		os_dlclose(mod->module);
 	}
 
+	bfree(mod->data_path);
 	bfree(mod->name);
 }
 
@@ -112,12 +212,11 @@ lookup_t obs_module_load_locale(const char *module, const char *default_locale,
 		return NULL;
 	}
 
-	dstr_copy(&str, module);
-	dstr_cat(&str, "/locale/");
+	dstr_copy(&str, "locale/");
 	dstr_cat(&str, default_locale);
 	dstr_cat(&str, ".ini");
 
-	char *file = obs_find_plugin_file(str.array);
+	char *file = obs_find_module_file(module, str.array);
 	if (file)
 		lookup = text_lookup_create(file);
 
@@ -132,12 +231,11 @@ lookup_t obs_module_load_locale(const char *module, const char *default_locale,
 	if (astrcmpi(locale, default_locale) == 0)
 		goto cleanup;
 
-	dstr_copy(&str, module);
-	dstr_cat(&str, "/locale/");
+	dstr_copy(&str, "/locale/");
 	dstr_cat(&str, locale);
 	dstr_cat(&str, ".ini");
 
-	file = obs_find_plugin_file(str.array);
+	file = obs_find_module_file(module, str.array);
 
 	if (!text_lookup_add(lookup, file))
 		blog(LOG_WARNING, "Failed to load '%s' text for module: '%s'",

@@ -22,6 +22,7 @@
 #include "util/circlebuf.h"
 #include "util/dstr.h"
 #include "util/threading.h"
+#include "util/platform.h"
 #include "callback/signal.h"
 #include "callback/proc.h"
 
@@ -53,9 +54,33 @@ struct obs_module {
 	char *name;
 	void *module;
 	void (*set_locale)(const char *locale);
+
+	char *data_path;
 };
 
 extern void free_module(struct obs_module *mod);
+
+struct obs_module_path {
+	char *bin;
+	char *data;
+};
+
+static inline void free_module_path(struct obs_module_path *omp)
+{
+	if (omp) {
+		bfree(omp->bin);
+		bfree(omp->data);
+	}
+}
+
+static inline bool check_path(const char *data, const char *path,
+		struct dstr *output)
+{
+	dstr_copy(output, path);
+	dstr_cat(output, data);
+
+	return os_file_exists(output->array);
+}
 
 
 /* ------------------------------------------------------------------------- */
@@ -162,6 +187,8 @@ struct obs_core_data {
 
 struct obs_core {
 	DARRAY(struct obs_module)       modules;
+	DARRAY(struct obs_module_path)  module_paths;
+
 	DARRAY(struct obs_source_info)  input_types;
 	DARRAY(struct obs_source_info)  filter_types;
 	DARRAY(struct obs_source_info)  transition_types;

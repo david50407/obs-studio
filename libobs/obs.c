@@ -22,6 +22,7 @@
 
 struct obs_core *obs = NULL;
 
+extern void add_default_module_paths(void);
 extern char *find_libobs_data_file(const char *file);
 
 static inline void make_gs_init_data(struct gs_init_data *gid,
@@ -522,6 +523,7 @@ static bool obs_init(const char *locale)
 
 	obs->locale = bstrdup(locale);
 	obs_register_source(&scene_info);
+	add_default_module_paths();
 	return true;
 }
 
@@ -567,6 +569,10 @@ void obs_shutdown(void)
 	for (size_t i = 0; i < obs->modules.num; i++)
 		free_module(obs->modules.array+i);
 	da_free(obs->modules);
+
+	for (size_t i = 0; i < obs->module_paths.num; i++)
+		free_module_path(obs->module_paths.array+i);
+	da_free(obs->module_paths);
 
 	bfree(obs->locale);
 	bfree(obs);
